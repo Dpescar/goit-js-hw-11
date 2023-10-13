@@ -1,92 +1,84 @@
-import './sass/main.scss';
-import { fetchImages } from './js/fetch-images';
-import { renderGallery } from './js/render-gallery';
-import { onScroll, onToTopBtn } from './js/scroll';
+import './css/style.css';
+import { PixabayAPI } from './js/pixabay-api';
+import createPhotoCard from './templates/card-template.hbs';
 import Notiflix from 'notiflix';
 import SimpleLightbox from 'simplelightbox';
-
 import 'simplelightbox/dist/simple-lightbox.min.css';
 
-const searchForm = document.querySelector('#search-form');
-const gallery = document.querySelector('.gallery');
-const loadMoreBtn = document.querySelector('.btn-load-more');
-let query = '';
-let page = 1;
-let simpleLightBox;
-const perPage = 40;
+const formSearchEl = document.querySelector('.search-form');
+const galleryEl = document.querySelector('.gallery');
+const loadMoreBtnEl = document.querySelector('.load-more');
 
-searchForm.addEventListener('submit', onSearchForm);
-loadMoreBtn.addEventListener('click', onLoadMoreBtn);
+const pixabayApi = new PixabayAPI();
 
-onScroll();
-onToTopBtn();
+let gallery = new SimpleLightbox('.gallery a');
 
-function onSearchForm(e) {
-  e.preventDefault();
-  window.scrollTo({ top: 0 });
-  page = 1;
-  query = e.currentTarget.searchQuery.value.trim();
-  gallery.innerHTML = '';
-  loadMoreBtn.classList.add('is-hidden');
+const handleSearchFoto = async ev => {
+  ev.preventDefault();
+  galleryEl.innerHTML = '';
+  loadMoreBtnEl.classList.add('is-hidden');
+  pixabayApi.page = 1;
 
-  if (query === '') {
-    alertNoEmptySearch();
+  const serchItemEl = ev.target.elements['searchQuery'].value.trim();
+
+  pixabayApi.q = serchItemEl;
+
+  if (!serchItemEl) {
+    Notiflix.Notify.failure(
+      'Sorry, there are no images matching your search query. Please try again.'
+    );
     return;
   }
 
-  fetchImages(query, page, perPage)
-    .then(({ data }) => {
-      if (data.totalHits === 0) {
-        alertNoImagesFound();
-      } else {
-        renderGallery(data.hits);
-        simpleLightBox = new SimpleLightbox('.gallery a').refresh();
-        alertImagesFound(data);
+  searchGallery();
+};
 
-        if (data.totalHits > perPage) {
-          loadMoreBtn.classList.remove('is-hidden');
-        }
-      }
-    })
-    .catch(error => console.log(error))
-    .finally(() => {
-      searchForm.reset();
-    });
+async function searchGallery() {
+  try {
+    const { data } = await pixabayApi.fetchPhoto();
+
+    if (data.totalHits === 0) {
+      Notiflix.Notify.failure(
+        'Sorry, there are no images matching your search query. Please try again.'
+      );
+      return;
+    }
+    galleryEl.innerHTML = createPhotoCard(data.hits);
+
+    Notiflix.Notify.success(`Hooray! We found ${data.totalHits} images.`);
+
+    gallery.refresh();
+
+    if (data.totalHits > pixabayApi.per_page) {
+      loadMoreBtnEl.classList.remove('is-hidden');
+    }
+  } catch (error) {
+    console.log(error);
+  }
 }
 
-function onLoadMoreBtn() {
-  page += 1;
-  simpleLightBox.destroy();
-
-  fetchImages(query, page, perPage)
-    .then(({ data }) => {
-      renderGallery(data.hits);
-      simpleLightBox = new SimpleLightbox('.gallery a').refresh();
-
-      const totalPages = Math.ceil(data.totalHits / perPage);
-
-      if (page > totalPages) {
-        loadMoreBtn.classList.add('is-hidden');
-        alertEndOfSearch();
-      }
-    })
-    .catch(error => console.log(error));
+function handleLoadMoreBtnClick() {
+  pixabayApi.page += 1;
+  searchMorePhoto();
 }
 
-function alertImagesFound(data) {
-  Notiflix.Notify.success(`Hooray! We found ${data.totalHits} images.`);
+async function searchMorePhoto() {
+  try {
+    const { data } = await pixabayApi.fetchPhoto();
+
+    galleryEl.insertAdjacentHTML('beforeend', createPhotoCard(data.hits));
+    gallery.refresh();
+
+    if (data.hits.length < pixabayApi.per_page) {
+      loadMoreBtnEl.classList.add('is-hidden');
+      return Notiflix.Notify.info(
+        "We're sorry, but you've reached the end of search results."
+      );
+    }
+  } catch (error) {
+    console.log(error);
+  }
 }
 
-function alertNoEmptySearch() {
-  Notiflix.Notify.failure('The search string cannot be empty. Please specify your search query.');
-}
-
-function alertNoImagesFound() {
-  Notiflix.Notify.failure(
-    'Sorry, there are no images matching your search query. Please try again.',
-  );
-}
-
-function alertEndOfSearch() {
-  Notiflix.Notify.failure("We're sorry, but you've reached the end of search results.");
-}
+formSearchEl.addEventListener('submit', handleSearchFoto);
+loadMoreBtnEl.addEventListener('click', handleLoadMoreBtnClick);
